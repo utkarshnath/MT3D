@@ -1299,7 +1299,7 @@ class GaussianSplattingRenderer(torch.nn.Module):
         tic()
         # torch.cuda.profiler.cudart().cudaProfilerStart()
         # NOTE: initial value of T is 1.0, which means no occlusion
-        T = torch.ones([H, W, 1], device=self.device, dtype=torch.float32)
+        T = torch.ones([H, W, 1], device=self.device, dtype=torch.float)
         rays_d = camera_info.get_rays_d(c2w)
         out = render_with_T(
             mean,

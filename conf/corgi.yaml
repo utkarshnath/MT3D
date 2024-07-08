@@ -1,5 +1,5 @@
 device: cuda
-batch_size: 4
+batch_size: 2
 grad_accum: 1
 max_steps: 11500
 huggingface_offline: true
@@ -43,8 +43,9 @@ eval:
   save_format: mp4
   downsample: 1
 loss:
-  sds: 0.1
-  dgm: 1e6
+  sds: 1.0
+  lora: 1.0
+  dgm: 1e4
   dgm_step: 500
   aux_guidance: 0.01
   sparsity: 0.0
@@ -94,12 +95,13 @@ data:
   far_plane: 100.0
   stratified_on_azimuth: true
 guidance:
-  type: stable_diffusion
+  type: controlnet_lora
   max_steps: ${max_steps}
   device: ${device}
   controlled: true
   control_obj_uid: eb3fbf324cce4ecc9f64d99a9c0c23ba
   pretrained_model_name_or_path: runwayml/stable-diffusion-v1-5
+  pretrained_model_name_or_path_lora: runwayml/stable-diffusion-v1-5
   controlnet_model_name_or_path: lllyasviel/sd-controlnet-depth
   keep_complete_pipeline: false
   repeat_until_success: true
@@ -111,6 +113,7 @@ guidance:
     args: null
   guidance_scale: 100.0
   weighting_strategy: sds
+  guidance_scale_lora: 1.0
   min_step_percent:
   - 0
   - 0.2
@@ -124,6 +127,12 @@ guidance:
   - 2001
   - sqrt
   grad_clip: null
+  lora_scale: 
+  - 0
+  - 0.5
+  - 0.75
+  - 5000
+  condition_scale: 0.5
 prompt:
   type: stable_diffusion
   device: ${guidance.device}

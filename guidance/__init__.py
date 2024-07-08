@@ -20,18 +20,22 @@ class BaseGuidance(torch.nn.Module):
         pass
 
 
-from .stable_diffusion import StableDiffusionGuidance
+from .stable_diffusion import StableDiffusionGuidance as original
 from .stable_diffusion_vsd import StableDiffusionVSDGuidance
 from .deep_floyd import DeepFloydGuidance
 from .point_e import PointEGuidance
 from .make_it_3d import MakeIt3DGuidance
+from .resnet_gm import ResNet34
+from .control_lora import ControlLoRA
+from .controlnet_lora import StableDiffusionGuidance
 
 guidances = dict(
-    stable_diffusion=StableDiffusionGuidance,
+    stable_diffusion=original,
     deep_floyd=DeepFloydGuidance,
     point_e=PointEGuidance,
     stable_diffusion_vsd=StableDiffusionVSDGuidance,
     make_it_3d=MakeIt3DGuidance,
+    controlnet_lora=StableDiffusionGuidance,
 )
 
 

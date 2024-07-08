@@ -1,6 +1,6 @@
 import os
 import hydra
-from trainer import Trainer
+from trainer_lora import Trainer
 from omegaconf import OmegaConf
 from rich.console import Console
 

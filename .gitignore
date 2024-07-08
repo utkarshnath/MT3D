@@ -192,5 +192,4 @@ exports/
 shap_e_model_cache/
 run_objaverse_rendering.py
 run_multi_objaverse_rendering.py
-resnet_gm.py
 corgi/

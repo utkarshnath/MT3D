@@ -164,7 +164,7 @@ def point_e_intialize(cfg):
     initial_values["qvec"] = get_qvec(cfg)
     initial_values["alpha"] = get_alpha(cfg)
 
-    return initial_values, pcd
+    return initial_values
 
 
 def shap_e_initialize(cfg):
@@ -282,8 +282,8 @@ def point_cloud_initialize(cfg):
     return initial_values
 
 
-def mesh_initlization(cfg):
-    mesh_path = Path(cfg.mesh_path)
+def mesh_initlization(cfg, mesh_path):
+    mesh_path = Path(mesh_path)
     assert mesh_path.exists(), f"Mesh path {mesh_path} does not exist"
     xyz, rgb = load_mesh_as_pcd_trimesh(mesh_path, cfg.num_points)
     if rgb.shape[-1] == 4:
@@ -482,7 +482,7 @@ def box_initialize(cfg):
     return initial_values
 
 
-def initialize(cfg, **kwargs):
+def initialize(cfg, mesh_path, **kwargs):
     init_type = cfg.type
     if init_type == "base":
         return base_initialize(cfg)
@@ -499,7 +499,7 @@ def initialize(cfg, **kwargs):
     elif init_type == "point_cloud":
         return point_cloud_initialize(cfg, **kwargs)
     elif init_type == "mesh":
-        return mesh_initlization(cfg, **kwargs)
+        return mesh_initlization(cfg, mesh_path, **kwargs)
     elif init_type == "point_e_image":
         return point_e_image_initialize(cfg, **kwargs)
     elif init_type == "unbounded":
