@@ -1,6 +1,5 @@
 import os
 import hydra
-from trainer_lora import Trainer
 from omegaconf import OmegaConf
 from rich.console import Console
 
@@ -12,6 +11,10 @@ def main(cfg):
     upsample_tune_only: bool = cfg.get("upsample_tune_only", False)
     # console.print(OmegaConf.to_yaml(cfg, resolve=True))
     ckpt = cfg.get("ckpt", None)
+    if cfg.stage == 1:
+        from trainer_lora import Trainer
+    else:
+        from trainer import Trainer
     if not upsample_tune_only:
         if ckpt is not None:
             console.print("[red]Tune from ckpt: {}[/red]".format(ckpt))

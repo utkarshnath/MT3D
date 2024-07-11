@@ -152,61 +152,11 @@ class Trainer(nn.Module):
 		)
 
 		self.dgm_model = ResNet34().to(device=cfg.device)
-		state_dict = torch.load('/data/pturaga/unath/moments/chkpts/res34_model_best.pth.tar')['state_dict']
+		state_dict = torch.load('./res34_model_best.pth.tar')['state_dict']
 		state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
 		self.dgm_model.load_state_dict(state_dict)
 
 		self.dgm_model.eval()
-
-		# def normalize_scene():
-		# 	bbox_min, bbox_max = scene_bbox()
-		# 	scale = 1 / max(bbox_max - bbox_min)
-		# 	for obj in scene_root_objects():
-		# 		obj.scale = obj.scale * scale
-		# 	# Apply scale to matrix_world.
-		# 	bpy.context.view_layer.update()
-		# 	bbox_min, bbox_max = scene_bbox()
-		# 	offset = -(bbox_min + bbox_max) / 2
-		# 	for obj in scene_root_objects():
-		# 		obj.matrix_world.translation += offset
-		# 	bpy.ops.object.select_all(action="DESELECT")
-
-		# objects = objaverse.load_objects(
-		# 	uids=[cfg.guidance.control_obj_uid])
-		# bpy.ops.import_scene.gltf(filepath=list(
-		# 	objects.values())[0], merge_vertices=True)
-		# bpy.data.objects.remove(bpy.data.objects["Cube"], do_unlink=True)
-		# normalize_scene()
-
-		# for key, obj in bpy.data.objects.items():
-		# 	if 'mat' in key or 'Mat' in key:
-		# 		for material in obj.data.materials:
-		# 			if material.use_nodes:
-		# 				for node in material.node_tree.nodes:
-		# 					if node.type == 'TEX_IMAGE':
-		# 						texture_image = node.image
-		# 						if texture_image:
-		# 							# Define the output texture path
-		# 							texture_image.filepath_raw = key + '.png'
-		# 							texture_image.file_format = 'PNG'
-		# 							texture_image.save()
-
-		# # # Export the object as OBJ with materials
-		# bpy.ops.export_scene.obj(
-		# 	filepath=f"{cfg.guidance.control_obj_uid}.obj",  # Path to save the OBJ fi  # Export only the selected object
-		# 	use_materials=True,  # Include materials and textures
-		# 	path_mode='COPY'
-		# )
-		# # bpy.ops.wm.obj_export(filepath=f"{cfg.guidance.control_obj_uid}.obj", export_materials=True, path_mode='COPY')
-
-		# device = torch.device(cfg.device)
-		# verts, faces, aux = load_obj(
-		# 	f"{cfg.guidance.control_obj_uid}.obj", create_texture_atlas=True, device=device)
-		# mesh = Meshes(verts=[verts.to(device)],
-		# 				faces=[faces.verts_idx.to(device)],
-		# 				textures=TexturesAtlas(
-		# 					atlas=[aux.texture_atlas.to(device)])
-						# )
 		
 		def scene_bbox(single_obj=None, ignore_matrix=False):
 			bbox_min = (math.inf,) * 3
@@ -263,7 +213,7 @@ class Trainer(nn.Module):
 			normalize_scene()
 			adjust_camera()
 			for key, obj in bpy.data.objects.items():
-				if 'mat' in key or 'Mat' in key:
+				try:
 					for material in obj.data.materials:
 						if material.use_nodes:
 							for node in material.node_tree.nodes:
@@ -273,6 +223,8 @@ class Trainer(nn.Module):
 										texture_image.filepath_raw = key + '.png'
 										texture_image.file_format = 'PNG'
 										texture_image.save()
+				except:
+					pass
 			# bpy.ops.export_scene.obj(filepath=f"{cfg.guidance.control_obj_uid}.obj", use_materials=True, path_mode='COPY')
 			bpy.ops.wm.obj_export(filepath=f"{cfg.guidance.control_obj_uid}.obj", export_materials=True, path_mode='COPY')
 
@@ -352,11 +304,11 @@ class Trainer(nn.Module):
 		torch.cuda.empty_cache()
 
 		self.save_dir = Path(
-			f"/scratch/unath/gsgen/checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"./checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.save_dir.exists():
 			self.save_dir.mkdir(parents=True, exist_ok=True)
 		self.log_dir = Path(
-			f"/scratch/unath/gsgen/logs/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"./logs/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.log_dir.exists():
 			self.log_dir.mkdir(parents=True, exist_ok=True)
 		self.eval_dir = self.save_dir / "eval"
@@ -371,7 +323,7 @@ class Trainer(nn.Module):
 
 		if cfg.wandb:
 			wandb.init(
-				project="gsgen-wacv",
+				project="gsgen-wacv-1",
 				name=uid,
 				config=to_primitive(cfg),
 				sync_tensorboard=True,
@@ -468,7 +420,8 @@ class Trainer(nn.Module):
 
 		three_channel_depth = normalized_depth.repeat(1, 1, 1, 3)
 		images = images.permute(0, 3, 1, 2)[:, :3, :, :]
-		return images, list(map(functional.to_pil_image, three_channel_depth.permute(0, 3, 1, 2)))
+		# return images, list(map(functional.to_pil_image, three_channel_depth.permute(0, 3, 1, 2)))
+		return images, three_channel_depth.permute(0, 3, 1, 2)
 
 	@property
 	def optimizer(self):
@@ -553,6 +506,7 @@ class Trainer(nn.Module):
 			camera_distance=batch["camera_distance"],
 			c2w=batch["c2w"],
 			rgb_as_latents=False,
+			geo_cond=None
 		)
 
 		if self.step % self.cfg.loss.dgm_step == 0:
@@ -672,6 +626,20 @@ class Trainer(nn.Module):
 		# self.optimizer.step()
 		# self.renderer.post_backward()
 
+		# lora_loss = self.guidance.train_lora(rgb=out["rgb"],
+		# 	control_image=self.control_image,
+		# 	prompt_embedding=prompt_embeddings,
+		# 	elevation=batch["elevation"],
+		# 	azimuth=batch["azimuth"],
+		# 	camera_distance=batch["camera_distance"],
+		# 	c2w=batch["c2w"],
+		# 	rgb_as_latents=False,
+		# 	geo_cond=None)
+		# print(lora_loss)
+
+		# self.writer.add_scalar(
+		# 		"loss/train_lora", lora_loss, self.step)
+
 		with torch.no_grad():
 			if step_check(self.step, self.cfg.log_period, run_at_zero=True):
 				out = dict_to_device(out, "cpu")
@@ -759,7 +727,7 @@ class Trainer(nn.Module):
 	def auxiliary_loss_step(self):
 		loss = self.renderer.auxiliary_loss(self.step, self.writer)
 		if loss.requires_grad:
-			loss.backward()
+			loss.backward()	
 
 	@torch.no_grad()
 	def eval_image_step(self):

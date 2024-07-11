@@ -160,13 +160,10 @@ class Trainer(nn.Module):
 					coord = Vector(coord)
 					if not ignore_matrix:
 						coord = obj.matrix_world @ coord
-					bbox_min = tuple(min(x, y)
-									 for x, y in zip(bbox_min, coord))
-					bbox_max = tuple(max(x, y)
-									 for x, y in zip(bbox_max, coord))
+					bbox_min = tuple(min(x, y) for x, y in zip(bbox_min, coord))
+					bbox_max = tuple(max(x, y) for x, y in zip(bbox_max, coord))
 			if not found:
-				raise RuntimeError(
-					"no objects in scene to compute bounding box for")
+				raise RuntimeError("no objects in scene to compute bounding box for")
 			return Vector(bbox_min), Vector(bbox_max)
 
 		def scene_root_objects():
@@ -176,21 +173,57 @@ class Trainer(nn.Module):
 
 		def scene_meshes():
 			for obj in bpy.context.scene.objects.values():
-				if isinstance(obj.data, (bpy.types.Mesh)):
+				if isinstance(obj.data, bpy.types.Mesh):
 					yield obj
 
-		def normalize_scene():
+		def normalize_scene(target_size=2.0):
 			bbox_min, bbox_max = scene_bbox()
-			scale = 1 / max(bbox_max - bbox_min)
+			scale = target_size / max(bbox_max - bbox_min)
 			for obj in scene_root_objects():
 				obj.scale = obj.scale * scale
-			# Apply scale to matrix_world.
 			bpy.context.view_layer.update()
 			bbox_min, bbox_max = scene_bbox()
 			offset = -(bbox_min + bbox_max) / 2
 			for obj in scene_root_objects():
 				obj.matrix_world.translation += offset
-			bpy.ops.object.select_all(action="DESELECT")
+			bpy.context.view_layer.update()
+
+		def adjust_camera(distance=2.5):
+			camera = bpy.context.scene.camera
+			bbox_min, bbox_max = scene_bbox()
+			scene_center = (bbox_min + bbox_max) / 2
+			bbox_size = max(bbox_max - bbox_min)
+			camera.location = scene_center + Vector((0, -distance, distance))
+			camera.data.lens = 50
+			bpy.context.view_layer.update()
+			bpy.context.scene.camera.rotation_euler = (math.pi / 4, 0, math.pi)
+		
+		def render_object(cfg):
+			objects = objaverse.load_objects(uids=[cfg.guidance.control_obj_uid])
+			bpy.ops.import_scene.gltf(filepath=list(objects.values())[0], merge_vertices=True)
+			bpy.data.objects.remove(bpy.data.objects["Cube"], do_unlink=True)
+			normalize_scene()
+			adjust_camera()
+			for key, obj in bpy.data.objects.items():
+				if 'mat' in key or 'Mat' in key:
+					for material in obj.data.materials:
+						if material.use_nodes:
+							for node in material.node_tree.nodes:
+								if node.type == 'TEX_IMAGE':
+									texture_image = node.image
+									if texture_image:
+										texture_image.filepath_raw = key + '.png'
+										texture_image.file_format = 'PNG'
+										texture_image.save()
+			# bpy.ops.export_scene.obj(filepath=f"{cfg.guidance.control_obj_uid}.obj", use_materials=True, path_mode='COPY')
+			bpy.ops.wm.obj_export(filepath=f"{cfg.guidance.control_obj_uid}.obj", export_materials=True, path_mode='COPY')
+
+			device = torch.device(cfg.device)
+			verts, faces, aux = load_obj(f"{cfg.guidance.control_obj_uid}.obj", create_texture_atlas=True, device=device)
+			mesh = Meshes(verts=[verts.to(device)], faces=[faces.verts_idx.to(device)], textures=TexturesAtlas(atlas=[aux.texture_atlas.to(device)]))
+			return mesh
+		
+		mesh = render_object(cfg)
 
 		if self.mode == "image_to_3d":
 			assert "image" in self.cfg, "image should be provided in image_to_3d mode"
@@ -227,7 +260,7 @@ class Trainer(nn.Module):
 			self.image_loss_fn = get_image_loss(0.2, "l2")
 		elif self.mode == "text_to_3d":
 			if cfg.init.type == "point_e":
-				initial_values = initialize(cfg.init)
+				initial_values = initialize(cfg.init, None)
 			else:
 				initial_values = initialize(cfg.init)
 		# initial_values = base_initialize(cfg.init)
@@ -241,44 +274,6 @@ class Trainer(nn.Module):
 		# 	import io
 		# 	from typing import BinaryIO
 		# 	PointCloud(xyz, {"RGB": rgb}).save("pointe_mesh.npz")
-
-		objects = objaverse.load_objects(
-			uids=[cfg.guidance.control_obj_uid])
-		bpy.ops.import_scene.gltf(filepath=list(
-			objects.values())[0], merge_vertices=True)
-		bpy.data.objects.remove(bpy.data.objects["Cube"], do_unlink=True)
-		normalize_scene()
-
-		for key, obj in bpy.data.objects.items():
-			if 'mat' in key:
-				for material in obj.data.materials:
-					if material.use_nodes:
-						for node in material.node_tree.nodes:
-							if node.type == 'TEX_IMAGE':
-								texture_image = node.image
-								if texture_image:
-									# Define the output texture path
-									texture_image.filepath_raw = key + '.png'
-									texture_image.file_format = 'PNG'
-									texture_image.save()
-
-		# Export the object as OBJ with materials
-		bpy.ops.export_scene.obj(
-			filepath=f"{cfg.guidance.control_obj_uid}.obj",  # Path to save the OBJ fi  # Export only the selected object
-			use_materials=True,  # Include materials and textures
-			path_mode='COPY'
-		)
-
-		device = torch.device(cfg.device)
-		verts, faces, aux = load_obj(
-			f"{cfg.guidance.control_obj_uid}.obj", create_texture_atlas=True, device=device)
-		# verts, faces, aux = load_obj(
-		# 	"texture.obj", create_texture_atlas=True, device=device)
-		mesh = Meshes(verts=[verts.to(device)],
-						faces=[faces.verts_idx.to(device)],
-						textures=TexturesAtlas(
-							atlas=[aux.texture_atlas.to(device)])
-						)
 
 		# mesh = get_mesh_from_pointe()
 		self.control_obj_mesh = join_meshes_as_batch([mesh] * cfg.batch_size)
@@ -307,11 +302,11 @@ class Trainer(nn.Module):
 		torch.cuda.empty_cache()
 
 		self.save_dir = Path(
-			f"/scratch/unath/gsgen/checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"./checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.save_dir.exists():
 			self.save_dir.mkdir(parents=True, exist_ok=True)
 		self.log_dir = Path(
-			f"/scratch/unath/gsgen/logs/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"./logs/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.log_dir.exists():
 			self.log_dir.mkdir(parents=True, exist_ok=True)
 		self.eval_dir = self.save_dir / "eval"
@@ -331,7 +326,7 @@ class Trainer(nn.Module):
 				config=to_primitive(cfg),
 				sync_tensorboard=True,
 				# magic=True,
-				dir="/scratch/unath/gsgen/wandb",
+				dir="./wandb",
 				save_code=True,
 				group=overrided_group,
 				notes=notes,
@@ -505,9 +500,8 @@ class Trainer(nn.Module):
 		else:
 			self.render_image, self.control_image = None, None
 		prompt_embeddings = self.prompt_processor()
-		guidance_out, dgm_loss = self.guidance(
+		guidance_out = self.guidance(
 			rgb=out["rgb"],
-			render_image = self.render_image,
 			control_image=self.control_image,
 			prompt_embedding=prompt_embeddings,
 			elevation=batch["elevation"],
@@ -516,12 +510,7 @@ class Trainer(nn.Module):
 			c2w=batch["c2w"],
 			rgb_as_latents=False,
 		)
-
-		if self.step % self.cfg.loss.dgm_step == 0:
-			loss = self.cfg.loss.dgm * dgm_loss
-			self.writer.add_scalar("loss/dgm", loss, self.step)
-		else:
-			loss = 0.0
+		loss = 0
 
 		if "loss_sds" in guidance_out.keys():
 			loss += (

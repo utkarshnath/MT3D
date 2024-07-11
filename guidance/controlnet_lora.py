@@ -1,5 +1,6 @@
 from . import BaseGuidance
 import torch
+import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoTokenizer, CLIPTextModel
@@ -71,6 +72,8 @@ class StableDiffusionGuidance(BaseGuidance):
 							self.cfg.pretrained_model_name_or_path,
 							**pipe_kwargs
 						).to(self.device)
+						del self.pipe_lora.vae
+						self.pipe_lora.vae = self.pipe.vae
 					else:
 						self.pipe = StableDiffusionPipeline.from_pretrained(
 							self.cfg.pretrained_model_name_or_path,
@@ -104,12 +107,7 @@ class StableDiffusionGuidance(BaseGuidance):
 					self.cfg.pretrained_model_name_or_path,
 					**pipe_kwargs
 				).to(self.device)
-
-		self.vae = self.pipe.vae.eval().to(self.device, torch.float16)
-		self.unet = self.pipe.unet.eval()
-		self.vae_lora = self.pipe_lora.vae.eval().to(self.device, torch.float16)
-		self.unet_lora = self.pipe_lora.unet.eval()
-		
+	
 		n_ch = len(self.pipe_lora.unet.config.block_out_channels)
 		control_ids = [i for i in range(n_ch)]
 		cross_attention_dims = {i: [] for i in range(n_ch)}
@@ -127,6 +125,23 @@ class StableDiffusionGuidance(BaseGuidance):
 		cross_attention_dims = tuple([cross_attention_dims[control_id] for control_id in control_ids])
 
 		self.control_lora = ControlLoRA.from_config("./conf/control-lora.yaml")
+
+		self.vae = self.pipe.vae.to(self.device, torch.float16)
+		self.vae_lora = self.vae
+		self.unet = self.pipe.unet
+		self.unet_lora = self.pipe_lora.unet
+		if self.cfg.controlled:
+			self.controlnet = self.pipe.controlnet
+
+		for p in self.vae.parameters():
+			p.requires_grad_(False)
+		for p in self.unet.parameters():
+			p.requires_grad_(False)
+		if self.cfg.controlled:
+			for p in self.controlnet.parameters():
+				p.requires_grad_(False)
+		for p in self.unet_lora.parameters():
+			p.requires_grad_(False)
 
 
 		# Set correct lora layers
@@ -150,30 +165,16 @@ class StableDiffusionGuidance(BaseGuidance):
 
 		self.unet_lora.set_attn_processor(lora_attn_procs)
 
-		if self.cfg.controlled:
-			self.controlnet = self.pipe.controlnet.eval()
-			self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
-			self.control_image_processor = VaeImageProcessor(
-				vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
-			)
-			self.render_image_processor = VaeImageProcessor(
-				vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
-			)
+		# if self.cfg.controlled:
+			# self.controlnet = self.pipe.controlnet.eval()
+			# self.vae_scale_factor = 2 ** (len(self.vae.config.block_out_channels) - 1)
+			# self.control_image_processor = VaeImageProcessor(
+			# 	vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
+			# )
+			# self.render_image_processor = VaeImageProcessor(
+			# 	vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
+			# )
 		
-		for p in self.vae.parameters():
-			p.requires_grad_(False)
-		for p in self.unet.parameters():
-			p.requires_grad_(False)
-		if self.cfg.controlled:
-			for p in self.controlnet.parameters():
-				p.requires_grad_(False)
-		for p in self.vae_lora.parameters():
-			p.requires_grad_(False)
-		for p in self.unet_lora.parameters():
-			p.requires_grad_(False)
-		for p in self.controlnet.parameters():
-			p.requires_grad_(False)
-
 		# TODO: make this configurable
 		scheduler = self.cfg.scheduler.type.lower()
 		if scheduler == "ddim":
@@ -187,6 +188,8 @@ class StableDiffusionGuidance(BaseGuidance):
 				subfolder="scheduler",
 				torch_dtype=self.weights_dtype,
 			)
+			self.pipe.scheduler = self.scheduler
+			self.pipe_lora.scheduler = self.scheduler
 		elif scheduler == "pndm":
 			self.scheduler = PNDMScheduler(**self.cfg.scheduler.args)
 		else:
@@ -219,6 +222,7 @@ class StableDiffusionGuidance(BaseGuidance):
 		control_image,
 		t,
 		encoder_hidden_states,
+		condition_scale
 	):
 		input_dtype = latents.dtype
 		if self.cfg.controlled:
@@ -229,7 +233,7 @@ class StableDiffusionGuidance(BaseGuidance):
 				t.to(self.weights_dtype),
 				encoder_hidden_states=controlnet_prompt_embeds,
 				controlnet_cond=control_image,
-				conditioning_scale=0.5,
+				conditioning_scale=condition_scale,
 				guess_mode=False,
 				return_dict=False
 			)
@@ -265,12 +269,16 @@ class StableDiffusionGuidance(BaseGuidance):
 		).sample.to(input_dtype)
 
 	@torch.cuda.amp.autocast(enabled=False)
-	def encode_images(self, imgs):
+	def encode_images(self, imgs, geo_cond):
 		input_dtype = imgs.dtype
 		imgs = imgs * 2.0 - 1.0
 		posterior = self.vae.encode(imgs.to(self.weights_dtype)).latent_dist
 		latents = posterior.sample() * self.vae.config.scaling_factor
-		return latents.to(input_dtype)
+
+		geo_cond = geo_cond * 2.0 - 1.0 if geo_cond is not None else imgs
+		posterior_lora = self.vae_lora.encode(geo_cond.to(self.weights_dtype)).latent_dist
+		latents_lora = posterior_lora.sample() * self.vae_lora.config.scaling_factor 
+		return latents.to(input_dtype), latents_lora.to(input_dtype)
 
 	@torch.cuda.amp.autocast(enabled=False)
 	def decode_latents(
@@ -291,6 +299,7 @@ class StableDiffusionGuidance(BaseGuidance):
 	def compute_grad_sds(
 		self,
 		latents,
+		latents_lora,
 		control_image,
 		t,
 		prompt_embedding,
@@ -347,8 +356,10 @@ class StableDiffusionGuidance(BaseGuidance):
 				latents_noisy = self.scheduler.add_noise(latents, noise, t)
 				# pred noise
 				latent_model_input = torch.cat([latents_noisy] * 2, dim=0)
+				# latent_model_input = latents_noisy
 				if self.cfg.controlled:
 					control_image_input = torch.cat([control_image] * 2, dim=0)
+					# control_image_input = control_image
 				else:
 					control_image_input = None
 				noise_pred = self.forward_unet(
@@ -356,9 +367,24 @@ class StableDiffusionGuidance(BaseGuidance):
 					control_image_input,
 					torch.cat([t] * 2),
 					encoder_hidden_states=text_embeddings,
+					condition_scale=self.condition_scale
 				)
-				latents_noisy_lora = self.scheduler_lora.add_noise(latents, noise, t)
+				# noise_pred = self.forward_unet(
+				# 	latent_model_input,
+				# 	control_image_input,
+				# 	t,
+				# 	encoder_hidden_states=text_embeddings,
+				# 	condition_scale=self.condition_scale
+				# )
+				latents_noisy_lora = self.scheduler_lora.add_noise(latents_lora, noise, t)
+				# latent_model_input_lora = latents_noisy_lora
 				latent_model_input_lora = torch.cat([latents_noisy_lora] * 2, dim=0)
+				# noise_pred_est = self.forward_unet_lora(
+				# 	latent_model_input_lora,
+				# 	t,
+				# 	control_image_input,
+				# 	encoder_hidden_states=text_embeddings,
+				# )
 				noise_pred_est = self.forward_unet_lora(
 					latent_model_input_lora,
 					torch.cat([t] * 2),
@@ -368,7 +394,7 @@ class StableDiffusionGuidance(BaseGuidance):
 
 			# perform guidance (high scale from paper!)
 			noise_pred_text, noise_pred_uncond = noise_pred.chunk(2)
-			noise_pred = noise_pred_text + self.cfg.guidance_scale * (
+			noise_pred = noise_pred_uncond + self.cfg.guidance_scale * (
 				noise_pred_text - noise_pred_uncond
 			)
 			
@@ -440,12 +466,12 @@ class StableDiffusionGuidance(BaseGuidance):
 				elevation, azimuth, camera_distances, self.cfg.use_view_dependent_prompt
 			)
 		t = torch.randint(
-            int(self.num_train_timesteps * 0.0),
-            int(self.num_train_timesteps * 1.0),
-            [B],
-            dtype=torch.long,
-            device=self.device,
-        )
+			int(self.num_train_timesteps * 0.0),
+			int(self.num_train_timesteps * 1.0),
+			[B],
+			dtype=torch.long,
+			device=self.device,
+		)
 		noise = torch.randn_like(latents)
 		noisy_latents = self.scheduler_lora.add_noise(latents, noise, t)
 		if self.scheduler_lora.config.prediction_type == "epsilon":
@@ -457,13 +483,19 @@ class StableDiffusionGuidance(BaseGuidance):
 				f"Unknown prediction type {self.scheduler_lora.config.prediction_type}"
 			)
 		
+		input_dtype = latents.dtype
+		_ = self.control_lora(image_cond).control_states
+		# noise_pred = self.unet_lora(
+		# 	noisy_latents.to(self.weights_dtype),
+		# 	t.to(self.weights_dtype),
+		# 	encoder_hidden_states=text_embeddings.to(self.weights_dtype),
+		# ).sample.to(input_dtype)
+		noise_pred = self.unet_lora(
+			torch.cat([noisy_latents] * 2, dim=0).to(self.weights_dtype),
+			torch.cat([t] * 2).to(self.weights_dtype),
+			encoder_hidden_states=text_embeddings.to(self.weights_dtype),
+		).sample.to(input_dtype)
 
-		noise_pred = self.forward_unet_lora(
-			torch.cat([noisy_latents] * 2, dim=0),
-			torch.cat([t] * 2),
-			image_cond,
-			encoder_hidden_states=text_embeddings,
-		)
 		return F.mse_loss(noise_pred.float(), torch.cat([target] * 2, dim=0).float(), reduction="mean")
 
 	def prepare_control_image(
@@ -504,6 +536,7 @@ class StableDiffusionGuidance(BaseGuidance):
 		camera_distance,
 		rgb_as_latents=False,
 		guidance_eval=False,
+		geo_cond=None,
 		**kwargs,
 	):
 		bs = rgb.shape[0]
@@ -517,17 +550,22 @@ class StableDiffusionGuidance(BaseGuidance):
 			rgb_BCHW_512 = F.interpolate(
 				rgb_BCHW, (512, 512), mode="bilinear", align_corners=False
 			)
+			if geo_cond is not None:
+				geo_cond = geo_cond.permute(0, 3, 1, 2)
 			# encode image into latents with vae
-			latents = self.encode_images(rgb_BCHW_512)
+			latents, latents_lora = self.encode_images(rgb_BCHW_512, geo_cond)
 		
 		if self.cfg.controlled:
-			control_image = self.prepare_control_image(
-				control_image,
-				512,
-				512,
-				device=self.device,
-				dtype=torch.float16
-			)
+			control_image = F.interpolate(
+				control_image, (512, 512), mode="bilinear", align_corners=False
+			).to(self.device, dtype=torch.float16)
+			# control_image = self.prepare_control_image(
+			# 	control_image,
+			# 	512,
+			# 	512,
+			# 	device=self.device,
+			# 	dtype=torch.float16
+			# )
 
 		t = torch.randint(
 			self.min_t_step,
@@ -538,7 +576,7 @@ class StableDiffusionGuidance(BaseGuidance):
 		)
 
 		grad, guidance_eval_utils = self.compute_grad_sds(
-			latents, control_image, t, prompt_embedding, elevation, azimuth, camera_distance
+			latents, latents_lora, control_image, t, prompt_embedding, elevation, azimuth, camera_distance
 		)
 
 		grad = torch.nan_to_num(grad)
@@ -552,7 +590,8 @@ class StableDiffusionGuidance(BaseGuidance):
 			dim=[1, 2, 3]
 		)
 
-		loss_lora = self.train_lora(latents, control_image, prompt_embedding, elevation, azimuth, camera_distance)
+		loss_lora = self.train_lora(latents_lora, control_image, prompt_embedding, elevation, azimuth, camera_distance)
+		print('loss_lora: ', loss_lora)
 
 		guidance_out = {
 			"loss_sds": loss_sds,
@@ -583,6 +622,84 @@ class StableDiffusionGuidance(BaseGuidance):
 
 	# vanilla scheduler use constant min max steps
 	# self.set_min_max_steps()
+
+	# def train_lora(
+	# 	self,
+	# 	rgb,
+	# 	control_image,
+	# 	prompt_embedding,
+	# 	elevation,
+	# 	azimuth,
+	# 	camera_distance,
+	# 	rgb_as_latents=False,
+	# 	geo_cond=None,
+	# 	**kwargs
+	# ):
+	# 	self.lora_optimizer.zero_grad()
+
+	# 	bs = rgb.shape[0]
+
+	# 	rgb_BCHW = rgb.permute(0, 3, 1, 2)
+	# 	if rgb_as_latents:
+	# 		latents = F.interpolate(
+	# 			rgb_BCHW, (64, 64), mode="bilinear", align_corners=False
+	# 		)
+	# 	else:
+	# 		rgb_BCHW_512 = F.interpolate(
+	# 			rgb_BCHW, (512, 512), mode="bilinear", align_corners=False
+	# 		)
+	# 		if geo_cond is not None:
+	# 			geo_cond = geo_cond.permute(0, 3, 1, 2)
+	# 		# encode image into latents with vae
+	# 		_, latents = self.encode_images(rgb_BCHW_512, geo_cond)
+
+	# 	if self.cfg.controlled:
+	# 		control_image = F.interpolate(
+	# 			control_image, (512, 512), mode="bilinear", align_corners=False
+	# 		).to(self.device, dtype=torch.float16)
+		
+	# 	B = latents.shape[0]
+	# 	latents = latents.detach().repeat(1, 1, 1, 1)
+	# 	text_embeddings = prompt_embedding.get_text_embedding(
+	# 			elevation, azimuth, camera_distance, self.cfg.use_view_dependent_prompt
+	# 		)
+	# 	t = torch.randint(
+	# 		int(self.num_train_timesteps * 0.0),
+	# 		int(self.num_train_timesteps * 1.0),
+	# 		[B],
+	# 		dtype=torch.long,
+	# 		device=self.device,
+	# 	)
+	# 	noise = torch.randn_like(latents)
+	# 	noisy_latents = self.scheduler_lora.add_noise(latents, noise, t)
+	# 	if self.scheduler_lora.config.prediction_type == "epsilon":
+	# 		target = noise
+	# 	elif self.scheduler_lora.config.prediction_type == "v_prediction":
+	# 		target = self.scheduler_lora.get_velocity(latents, noise, t)
+	# 	else:
+	# 		raise ValueError(
+	# 			f"Unknown prediction type {self.scheduler_lora.config.prediction_type}"
+	# 		)
+
+	# 	# noise_pred = self.forward_unet_lora(
+	# 	# 	noisy_latents,
+	# 	# 	t,
+	# 	# 	control_image,
+	# 	# 	encoder_hidden_states=text_embeddings,
+	# 	# )
+	# 	noise_pred = self.forward_unet_lora(
+	# 		torch.cat([noisy_latents] * 2, dim=0),
+	# 		torch.cat([t] * 2),
+	# 		control_image,
+	# 		encoder_hidden_states=text_embeddings,
+	# 	)
+
+	# 	loss = F.mse_loss(noise_pred, torch.cat([target] * 2, dim=0), reduction="mean")
+	# 	loss.backward()
+	# 	self.lora_optimizer.step()
+	# 	self.lora_scheduler.step()
+	# 	return loss  
+
 
 	def update(self, step):
 		self.step = step

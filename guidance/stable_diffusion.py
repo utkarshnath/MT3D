@@ -98,12 +98,7 @@ class StableDiffusionGuidance(BaseGuidance):
 			self.render_image_processor = VaeImageProcessor(
 				vae_scale_factor=self.vae_scale_factor, do_convert_rgb=True, do_normalize=False
 			)
-		self.dgm_model = ResNet34().cuda()
-		state_dict = torch.load('/data/pturaga/unath/moments/chkpts/res34_model_best.pth.tar')['state_dict']
-		state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-		self.dgm_model.load_state_dict(state_dict)
 
-		self.dgm_model.eval()
 		for p in self.vae.parameters():
 			p.requires_grad_(False)
 		for p in self.unet.parameters():
@@ -205,7 +200,6 @@ class StableDiffusionGuidance(BaseGuidance):
 	def compute_grad_sds(
 		self,
 		latents,
-		render_image,
 		control_image,
 		t,
 		prompt_embedding,
@@ -302,35 +296,35 @@ class StableDiffusionGuidance(BaseGuidance):
 			"noise_pred": noise_pred,
 		}
 
-		if render_image is not None:
-			self.scheduler.set_timesteps(50, device=self.device)
-			latents = self.scheduler.step(noise_pred, t[0], latents, return_dict=False)[0]
-			image = self.vae.decode(latents.to(torch.float16) / self.vae.config.scaling_factor)[0]
-			image = self.render_image_processor.postprocess(image.detach(), output_type="pil", do_denormalize=[True]*4)
+		# if render_image is not None:
+		# 	self.scheduler.set_timesteps(50, device=self.device)
+		# 	latents = self.scheduler.step(noise_pred, t[0], latents, return_dict=False)[0]
+		# 	image = self.vae.decode(latents.to(torch.float16) / self.vae.config.scaling_factor)[0]
+		# 	image = self.render_image_processor.postprocess(image.detach(), output_type="pil", do_denormalize=[True]*4)
 
-			image_transform = transforms.Compose([
-				transforms.Resize(256),
-				transforms.CenterCrop(256),
-				transforms.ToTensor(),
-				transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-			])
+		# 	image_transform = transforms.Compose([
+		# 		transforms.Resize(256),
+		# 		transforms.CenterCrop(256),
+		# 		transforms.ToTensor(),
+		# 		transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+		# 	])
 
-			render_transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-			images = torch.empty((0, )).to(self.device)
-			for i in range(4):
-				images = torch.cat((images, image_transform(image[i]).to(self.device).unsqueeze(0)), dim=0)
-			render_image = render_transform(render_image)
+		# 	render_transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+		# 	images = torch.empty((0, )).to(self.device)
+		# 	for i in range(4):
+		# 		images = torch.cat((images, image_transform(image[i]).to(self.device).unsqueeze(0)), dim=0)
+		# 	render_image = render_transform(render_image)
 
-			with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
-				_, image_gm = self.dgm_model(images)
-				_, render_image_gm = self.dgm_model(render_image)
+		# 	with torch.cuda.amp.autocast(enabled=True, dtype=torch.float16):
+		# 		_, image_gm = self.dgm_model(images)
+		# 		_, render_image_gm = self.dgm_model(render_image)
 
-			mse = nn.MSELoss()
-			dgm_loss = mse(image_gm, render_image_gm)
-		else:
-			dgm_loss = 0
+		# 	mse = nn.MSELoss()
+		# 	dgm_loss = mse(image_gm, render_image_gm)
+		# else:
+		# 	dgm_loss = 0
 
-		return grad, guidance_eval_utils, dgm_loss
+		return grad, guidance_eval_utils
 	
 	def prepare_control_image(
 		self,
@@ -363,7 +357,6 @@ class StableDiffusionGuidance(BaseGuidance):
 	def forward(
 		self,
 		rgb,
-		render_image,
 		control_image,
 		prompt_embedding,
 		elevation,
@@ -404,8 +397,8 @@ class StableDiffusionGuidance(BaseGuidance):
 			device=self.device,
 		)
 
-		grad, guidance_eval_utils, dgm_loss = self.compute_grad_sds(
-			latents, render_image, control_image, t, prompt_embedding, elevation, azimuth, camera_distance
+		grad, guidance_eval_utils = self.compute_grad_sds(
+			latents, control_image, t, prompt_embedding, elevation, azimuth, camera_distance
 		)
 
 		grad = torch.nan_to_num(grad)
@@ -439,7 +432,7 @@ class StableDiffusionGuidance(BaseGuidance):
 			guidance_eval_out.update({"texts": texts})
 			guidance_out.update({"eval": guidance_eval_out})
 
-		return guidance_out, dgm_loss
+		return guidance_out
 
 	# def step(self, epoch: int, step: int):
 	#     if self.cfg.grad_clip is not None:
