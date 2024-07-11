@@ -46,7 +46,7 @@ eval:
 loss:
   sds: 1.0
   lora: 1.0
-  dgm: 1e4
+  dgm: 1e2
   dgm_step: 500
   aux_guidance: 0.01
   sparsity: 0.0
