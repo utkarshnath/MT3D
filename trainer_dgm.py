@@ -304,11 +304,11 @@ class Trainer(nn.Module):
 		torch.cuda.empty_cache()
 
 		self.save_dir = Path(
-			f"./checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"/scratch/unath/wacv/checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.save_dir.exists():
 			self.save_dir.mkdir(parents=True, exist_ok=True)
 		self.log_dir = Path(
-			f"./logs/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"/scratch/unath/wacv/logs/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.log_dir.exists():
 			self.log_dir.mkdir(parents=True, exist_ok=True)
 		self.eval_dir = self.save_dir / "eval"
@@ -323,7 +323,7 @@ class Trainer(nn.Module):
 
 		if cfg.wandb:
 			wandb.init(
-				project="gsgen-wacv-1",
+				project="gsgen-wacv-ablation",
 				name=uid,
 				config=to_primitive(cfg),
 				sync_tensorboard=True,
@@ -410,6 +410,7 @@ class Trainer(nn.Module):
 		)
 
 		images, _ = renderer(mesh.to(cfg.device))
+		images = images.permute(0, 3, 1, 2)[:, :3, :, :]
 
 		return images
 
@@ -481,7 +482,7 @@ class Trainer(nn.Module):
 		batch = next(self.loader)
 		out = self.renderer(batch, self.cfg.use_bg, self.cfg.rgb_only)
 
-        render_image = self.get_control_image_from_mesh(
+		render_image = self.get_control_image_from_mesh(
 				self.cfg, batch, self.control_obj_mesh)
 		
 		prompt_embeddings = self.prompt_processor()
@@ -492,8 +493,7 @@ class Trainer(nn.Module):
 			azimuth=batch["azimuth"],
 			camera_distance=batch["camera_distance"],
 			c2w=batch["c2w"],
-			rgb_as_latents=False,
-			geo_cond=None
+			rgb_as_latents=False
 		)
 
 		if self.step % self.cfg.loss.dgm_step == 0:
