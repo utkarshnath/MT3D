@@ -155,7 +155,7 @@ class Trainer(nn.Module):
 
             self.image_loss_fn = get_image_loss(0.2, "l2")
         elif self.mode == "text_to_3d":
-            initial_values = initialize(cfg.init)
+            initial_values = initialize(cfg.init, None)
         # initial_values = base_initialize(cfg.init)
         self.renderer = GaussianSplattingRenderer(
             cfg.renderer, initial_values=initial_values

@@ -44,8 +44,7 @@ eval:
   save_format: mp4
   downsample: 1
 loss:
-  sds: 1.0
-  lora: 1.0
+  sds: 0.1
   dgm: 1e2
   dgm_step: 500
   aux_guidance: 0.01
@@ -96,13 +95,12 @@ data:
   far_plane: 100.0
   stratified_on_azimuth: true
 guidance:
-  type: controlnet_lora
+  type: controlnet
   max_steps: ${max_steps}
   device: ${device}
   controlled: true
   control_obj_uid: eb3fbf324cce4ecc9f64d99a9c0c23ba
   pretrained_model_name_or_path: runwayml/stable-diffusion-v1-5
-  pretrained_model_name_or_path_lora: runwayml/stable-diffusion-v1-5
   controlnet_model_name_or_path: lllyasviel/sd-controlnet-depth
   keep_complete_pipeline: false
   repeat_until_success: true
@@ -115,12 +113,17 @@ guidance:
   guidance_scale: 7.5
   weighting_strategy: sds
   guidance_scale_lora: 1.0
-  min_step_percent: 0.02
-  max_step_percent:
-  - 5000
+  min_step_percent:
+  - 0
+  - 0.2
   - 0.98
-  - 0.5
-  - 5001
+  - 2001
+  - sqrt
+  max_step_percent:
+  - 0
+  - 0.2
+  - 0.98
+  - 2001
   - sqrt
   grad_clip: null
   lora_scale: 

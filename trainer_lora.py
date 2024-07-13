@@ -323,7 +323,7 @@ class Trainer(nn.Module):
 
 		if cfg.wandb:
 			wandb.init(
-				project="gsgen-wacv-ablation",
+				project="gsgen-wacv-main",
 				name=uid,
 				config=to_primitive(cfg),
 				sync_tensorboard=True,
@@ -458,6 +458,8 @@ class Trainer(nn.Module):
 			"cfg": cfg,
 			"step": self.step,
 		}
+		self.guidance.pipe_lora.save_pretrained(self.save_dir / "ckpts"/ "lora_weights")
+
 		save_dir = self.save_dir / "ckpts"
 		if not save_dir.exists():
 			save_dir.mkdir(parents=True, exist_ok=True)
@@ -525,7 +527,6 @@ class Trainer(nn.Module):
 
 			mse = nn.MSELoss()
 			dgm_loss = mse(image_gm, render_image_gm)
-			print('dgm_loss: ', dgm_loss)
 			loss = self.cfg.loss.dgm * dgm_loss
 			self.writer.add_scalar("loss/dgm", loss, self.step)
 		else:

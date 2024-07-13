@@ -37,6 +37,7 @@ guidances = dict(
     stable_diffusion_vsd=StableDiffusionVSDGuidance,
     make_it_3d=MakeIt3DGuidance,
     controlnet_lora=controlLoRA,
+    stable_dgm=StableDiffusionGuidance,
     controlnet=stable_controlnet
 )
 

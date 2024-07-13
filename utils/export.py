@@ -291,7 +291,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("ckpt", type=str)
     parser.add_argument("--type", type=str, default="ply")
-    parser.add_argument("--save_dir", type=str, default="./exports")
+    parser.add_argument("--save_dir", type=str, default="./exports/wacv_ablation/")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--reso", type=int, default=128)
     parser.add_argument("--K", type=int, default=3)

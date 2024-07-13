@@ -591,7 +591,6 @@ class StableDiffusionGuidance(BaseGuidance):
 		)
 
 		loss_lora = self.train_lora(latents_lora, control_image, prompt_embedding, elevation, azimuth, camera_distance)
-		print('loss_lora: ', loss_lora)
 
 		guidance_out = {
 			"loss_sds": loss_sds,
