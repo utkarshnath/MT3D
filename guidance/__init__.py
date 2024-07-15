@@ -29,6 +29,7 @@ from .resnet_gm import ResNet34
 from .control_lora import ControlLoRA
 from .controlnet_lora import StableDiffusionGuidance as controlLoRA
 from .controlnet import StableDiffusionGuidance as stable_controlnet
+from .vsd_dgm import StableDiffusionGuidance as vsd_dgm
 
 guidances = dict(
     stable_diffusion=StableDiffusionGuidance,
@@ -38,7 +39,8 @@ guidances = dict(
     make_it_3d=MakeIt3DGuidance,
     controlnet_lora=controlLoRA,
     stable_dgm=StableDiffusionGuidance,
-    controlnet=stable_controlnet
+    controlnet=stable_controlnet,
+    vsd_dgm=vsd_dgm
 )
 
 

@@ -318,12 +318,12 @@ class Trainer(nn.Module):
 
         if "loss_vsd" in guidance_out.keys():
             loss += (
-                C(self.cfg.loss.vsd, self.step, self.max_steps)
+                C(self.cfg.loss.sds, self.step, self.max_steps)
                 * guidance_out["loss_vsd"]
             )
             self.writer.add_scalar(
                 "loss_weights/vsd",
-                C(self.cfg.loss.vsd, self.step, self.max_steps),
+                C(self.cfg.loss.sds, self.step, self.max_steps),
                 self.step,
             )
 

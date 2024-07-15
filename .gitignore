@@ -184,6 +184,8 @@ sweep/
 *.mp4
 *.mov
 *.mtl
+*.glb
+*.ply
 *.obj
 *.csv
 *.npz
@@ -193,3 +195,4 @@ shap_e_model_cache/
 run_objaverse_rendering.py
 run_multi_objaverse_rendering.py
 corgi/
+train_controlnet.py

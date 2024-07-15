@@ -541,12 +541,12 @@ class StableDiffusionVSDGuidance(BaseGuidance):
         camera_condition: Float[Tensor, "B 4 4"],
     ):
         B = latents.shape[0]
-        latents = latents.detach().repeat(self.cfg.lora_n_timestamp_samples, 1, 1, 1)
+        latents = latents.detach().repeat(1, 1, 1, 1)
 
         t = torch.randint(
             int(self.num_train_timesteps * 0.0),
             int(self.num_train_timesteps * 1.0),
-            [B * self.cfg.lora_n_timestamp_samples],
+            [B],
             dtype=torch.long,
             device=self.device,
         )
@@ -563,17 +563,17 @@ class StableDiffusionVSDGuidance(BaseGuidance):
             )
         # use view-independent text embeddings in LoRA
         text_embeddings_cond, _ = text_embeddings.chunk(2)
-        if self.cfg.lora_cfg_training and random.random() < 0.1:
+        if True and random.random() < 0.1:
             camera_condition = torch.zeros_like(camera_condition)
         noise_pred = self.forward_unet(
             self.unet_lora,
             noisy_latents,
             t,
             encoder_hidden_states=text_embeddings_cond.repeat(
-                self.cfg.lora_n_timestamp_samples, 1, 1
+                1, 1, 1
             ),
             class_labels=camera_condition.view(B, -1).repeat(
-                self.cfg.lora_n_timestamp_samples, 1
+                1, 1
             ),
             cross_attention_kwargs={"scale": 1.0},
         )

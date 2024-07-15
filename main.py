@@ -11,20 +11,29 @@ def main(cfg):
     upsample_tune_only: bool = cfg.get("upsample_tune_only", False)
     # console.print(OmegaConf.to_yaml(cfg, resolve=True))
     ckpt = cfg.get("ckpt", None)
-    if cfg.stage == 1:
-        if cfg.guidance.type == "stable_dgm":
-            from trainer_dgm import Trainer
-        elif cfg.guidance.type == "controlnet":
-            from trainer_controlnet import Trainer
-        elif cfg.guidance.type == "controlnet_lora":
-            from trainer_lora import Trainer
-        else:
-            from trainer import Trainer
+    if cfg.low_fidelity:
+        from trainer_lora_combined import Trainer
     else:
-        if cfg.guidance.type == "controlnet_lora":
-            from trainer_lora import Trainer
+        if cfg.stage == 1:
+            if cfg.guidance.type == "stable_dgm":
+                from trainer_dgm import Trainer
+            elif cfg.guidance.type == "controlnet":
+                from trainer_controlnet import Trainer
+            elif cfg.guidance.type == "controlnet_lora":
+                from trainer_lora import Trainer
+            elif cfg.guidance.type == "vsd_dgm":
+                from trainer_vsd_dgm import Trainer
+            elif cfg.guidance.type == "stable_diffusion_vsd":
+                from trainer import Trainer
+            else:
+                from trainer import Trainer
         else:
-            from trainer import Trainer
+            if cfg.guidance.type == "controlnet_lora":
+                from trainer_lora import Trainer
+            elif cfg.guidance.type == "vsd_dgm":
+                from trainer_vsd_dgm import Trainer
+            else:
+                from trainer import Trainer
     if not upsample_tune_only:
         if ckpt is not None:
             console.print("[red]Tune from ckpt: {}[/red]".format(ckpt))

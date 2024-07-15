@@ -6,6 +6,7 @@ huggingface_offline: true
 use_bg: true
 rgb_only: false
 ckpt: null
+low_fidelity: false
 optimizer:
   type: Adam
   opt_args:
@@ -130,6 +131,7 @@ guidance:
   - 5000
   - linear
   condition_scale: 0.5
+  camera_condition_type: "extrinsics"
 prompt:
   type: stable_diffusion
   device: ${guidance.device}

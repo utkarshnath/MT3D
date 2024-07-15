@@ -81,7 +81,7 @@ class CrossAttentionPointCloudSDFModel(PointCloudSDFModel):
         device: torch.device,
         dtype: torch.dtype,
         n_ctx: int = 4096,
-        width: int = 512,
+        width: int = 256,
         encoder_layers: int = 12,
         encoder_heads: int = 8,
         decoder_layers: int = 4,

@@ -33,6 +33,7 @@ from utils.misc import (
 )
 from pytorch3d.structures import Meshes, join_meshes_as_batch
 from pytorch3d.io import load_objs_as_meshes, load_obj, save_obj
+from pytorch3d.io import IO
 from pytorch3d.renderer import (
 	look_at_view_transform,
 	FoVPerspectiveCameras,
@@ -77,6 +78,8 @@ from point_e.models.configs import MODEL_CONFIGS, model_from_config
 from point_e.util.pc_to_mesh import marching_cubes_mesh
 from point_e.util.plotting import plot_point_cloud
 from point_e.util.point_cloud import PointCloud
+from point_e.models.sdf import CrossAttentionPointCloudSDFModel
+from utils.point_e_helper import point_e_generate_pcd_from_text
 import matplotlib.pyplot as plt
 
 console = Console()
@@ -151,6 +154,13 @@ class Trainer(nn.Module):
 			)
 		)
 
+		self.dgm_model = ResNet34().to(device=cfg.device)
+		state_dict = torch.load('./res34_model_best.pth.tar')['state_dict']
+		state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+		self.dgm_model.load_state_dict(state_dict)
+
+		self.dgm_model.eval()
+
 		def scene_bbox(single_obj=None, ignore_matrix=False):
 			bbox_min = (math.inf,) * 3
 			bbox_max = (-math.inf,) * 3
@@ -199,9 +209,13 @@ class Trainer(nn.Module):
 			bpy.context.view_layer.update()
 			bpy.context.scene.camera.rotation_euler = (math.pi / 4, 0, math.pi)
 
+		if cfg.init.prompt == "a car":
+				filepath = "car.glb"
+		else:
+			filepath = "mesh.glb"
+
 		def render_object(cfg):
-			objects = objaverse.load_objects(uids=[cfg.guidance.control_obj_uid])
-			bpy.ops.import_scene.gltf(filepath=list(objects.values())[0], merge_vertices=True)
+			bpy.ops.import_scene.gltf(filepath=filepath, merge_vertices=True)
 			bpy.data.objects.remove(bpy.data.objects["Cube"], do_unlink=True)
 			normalize_scene()
 			adjust_camera()
@@ -218,16 +232,17 @@ class Trainer(nn.Module):
 										texture_image.save()
 				except:
 					pass
-
-			bpy.ops.wm.obj_export(filepath=f"{cfg.guidance.control_obj_uid}.obj", export_materials=True, path_mode='COPY')
+			# bpy.ops.export_scene.obj(filepath=f"{cfg.guidance.control_obj_uid}.obj", use_materials=True, path_mode='COPY')
+			bpy.ops.wm.obj_export(filepath=f"{filepath.split('.')[0]}.obj", export_materials=True, path_mode='COPY')
 
 			device = torch.device(cfg.device)
-			verts, faces, aux = load_obj(f"{cfg.guidance.control_obj_uid}.obj", create_texture_atlas=True, device=device)
+			verts, faces, aux = load_obj(f"{filepath.split('.')[0]}.obj", create_texture_atlas=True, device=device)
 			mesh = Meshes(verts=[verts.to(device)], faces=[faces.verts_idx.to(device)], textures=TexturesAtlas(atlas=[aux.texture_atlas.to(device)]))
 			return mesh
-
+		
 		mesh = render_object(cfg)
 
+		# mesh = get_mesh_from_pointe()
 		self.control_obj_mesh = join_meshes_as_batch([mesh] * cfg.batch_size)
 
 		if self.mode == "image_to_3d":
@@ -273,7 +288,7 @@ class Trainer(nn.Module):
 		self.renderer = GaussianSplattingRenderer(
 			cfg.renderer, initial_values=initial_values
 		).to(cfg.device)
-
+		
 		self.renderer.setup_lr(cfg.lr)
 		self.renderer.set_optimizer(cfg.optimizer)
 
@@ -412,6 +427,7 @@ class Trainer(nn.Module):
 
 		three_channel_depth = normalized_depth.repeat(1, 1, 1, 3)
 		images = images.permute(0, 3, 1, 2)[:, :3, :, :]
+		# return images, list(map(functional.to_pil_image, three_channel_depth.permute(0, 3, 1, 2)))
 		return images, three_channel_depth.permute(0, 3, 1, 2)
 
 	@property
@@ -449,6 +465,8 @@ class Trainer(nn.Module):
 			"cfg": cfg,
 			"step": self.step,
 		}
+		self.guidance.pipe_lora.save_pretrained(self.save_dir / "ckpts"/ "lora_weights")
+
 		save_dir = self.save_dir / "ckpts"
 		if not save_dir.exists():
 			save_dir.mkdir(parents=True, exist_ok=True)
@@ -482,11 +500,11 @@ class Trainer(nn.Module):
 		batch = next(self.loader)
 		out = self.renderer(batch, self.cfg.use_bg, self.cfg.rgb_only)
 		if self.cfg.guidance.controlled:
-			_, self.control_image = self.get_control_image_from_mesh(
+			self.render_image, self.control_image = self.get_control_image_from_mesh(
 				self.cfg, batch, self.control_obj_mesh)
 		else:
-			self.control_image = None
-
+			self.render_image, self.control_image = None, None
+		
 		prompt_embeddings = self.prompt_processor()
 		guidance_out = self.guidance(
 			rgb=out["rgb"],
@@ -496,10 +514,30 @@ class Trainer(nn.Module):
 			azimuth=batch["azimuth"],
 			camera_distance=batch["camera_distance"],
 			c2w=batch["c2w"],
-			rgb_as_latents=False
+			rgb_as_latents=False,
+			geo_cond=None
 		)
 
-		loss = 0.0
+		if self.step % self.cfg.loss.dgm_step == 0:
+			with torch.cuda.amp.autocast(dtype=torch.float16):
+				image_transform = transforms.Compose([
+						transforms.Resize(256, antialias=True),
+						transforms.CenterCrop(256),
+						transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+					])
+				transform = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+				image = image_transform(out["rgb"].permute(0, 3, 1, 2))
+				render_image = transform(self.render_image)
+				# image = transform(img)
+				_, image_gm = self.dgm_model(image.to(device=self.cfg.device))
+				_, render_image_gm = self.dgm_model(render_image.to(device=self.cfg.device))
+
+			mse = nn.MSELoss()
+			dgm_loss = mse(image_gm, render_image_gm)
+			loss = self.cfg.loss.dgm * dgm_loss
+			self.writer.add_scalar("loss/dgm", loss, self.step)
+		else:
+			loss = 0.0
 
 		if "loss_sds" in guidance_out.keys():
 			loss += (
@@ -683,7 +721,7 @@ class Trainer(nn.Module):
 	def auxiliary_loss_step(self):
 		loss = self.renderer.auxiliary_loss(self.step, self.writer)
 		if loss.requires_grad:
-			loss.backward()
+			loss.backward()	
 
 	@torch.no_grad()
 	def eval_image_step(self):
