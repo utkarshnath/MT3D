@@ -1,4 +1,4 @@
-# Deep Geometric Moments Promote Shape Consistency in Text-to-3D Generation
+# [WACV 2025] Deep Geometric Moments Promote Shape Consistency in Text-to-3D Generation
 
 ### Instructions:
 1. Install the requirements:
