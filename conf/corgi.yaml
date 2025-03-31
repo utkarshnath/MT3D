@@ -48,7 +48,7 @@ loss:
   sds: 1.0
   lora: 1.0
   dgm: 1e2
-  dgm_step: 500
+  dgm_step: 1
   aux_guidance: 0.01
   sparsity: 0.0
   opague: 100.0

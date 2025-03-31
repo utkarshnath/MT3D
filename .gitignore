@@ -176,7 +176,7 @@ wandb/
 *.pdf
 point-e/
 point_e_model_cache/
-
+*.pth.tar
 checkpoints/
 *.ipynb
 sweep_output/

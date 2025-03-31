@@ -181,10 +181,10 @@ class Trainer(nn.Module):
         gc.collect()
         torch.cuda.empty_cache()
 
-        self.save_dir = Path(f"./checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
+        self.save_dir = Path(f"checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
         if not self.save_dir.exists():
             self.save_dir.mkdir(parents=True, exist_ok=True)
-        self.log_dir = Path(f"./logs/{prompt}/{day_timestamp}/{hms_timestamp}")
+        self.log_dir = Path(f"/logs/{prompt}/{day_timestamp}/{hms_timestamp}")
         if not self.log_dir.exists():
             self.log_dir.mkdir(parents=True, exist_ok=True)
         self.eval_dir = self.save_dir / "eval"
@@ -199,7 +199,7 @@ class Trainer(nn.Module):
 
         if cfg.wandb:
             wandb.init(
-                project="gsgen",
+                project="mt3d",
                 name=uid,
                 config=to_primitive(cfg),
                 sync_tensorboard=True,

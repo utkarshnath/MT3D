@@ -16,7 +16,8 @@ def main(cfg):
     else:
         if cfg.stage == 1:
             if cfg.guidance.type == "stable_dgm":
-                from trainer_dgm import Trainer
+                #from trainer_dgm import Trainer
+                pass
             elif cfg.guidance.type == "controlnet":
                 from trainer_controlnet import Trainer
             elif cfg.guidance.type == "controlnet_lora":

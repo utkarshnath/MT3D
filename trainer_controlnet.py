@@ -226,7 +226,16 @@ class Trainer(nn.Module):
 			mesh = Meshes(verts=[verts.to(device)], faces=[faces.verts_idx.to(device)], textures=TexturesAtlas(atlas=[aux.texture_atlas.to(device)]))
 			return mesh
 
-		mesh = render_object(cfg)
+		def bad_obj(cfg):
+			device = torch.device(cfg.device)
+			verts, faces, aux = load_obj(f"{cfg.file_name}.obj", create_texture_atlas=True, device=device)
+			mesh = Meshes(verts=[verts.to(device)], faces=[faces.verts_idx.to(device)], textures=TexturesAtlas(atlas=[aux.texture_atlas.to(device)]))
+			return mesh
+
+		if cfg.file_name:
+			mesh = bad_obj(cfg)
+		else:
+			mesh = render_object(cfg)
 
 		self.control_obj_mesh = join_meshes_as_batch([mesh] * cfg.batch_size)
 
@@ -296,11 +305,11 @@ class Trainer(nn.Module):
 		torch.cuda.empty_cache()
 
 		self.save_dir = Path(
-			f"./checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.save_dir.exists():
 			self.save_dir.mkdir(parents=True, exist_ok=True)
 		self.log_dir = Path(
-			f"./logs/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"logs/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.log_dir.exists():
 			self.log_dir.mkdir(parents=True, exist_ok=True)
 		self.eval_dir = self.save_dir / "eval"

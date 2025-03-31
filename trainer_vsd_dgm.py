@@ -233,8 +233,16 @@ class Trainer(nn.Module):
 			mesh = Meshes(verts=[verts.to(device)], faces=[faces.verts_idx.to(device)], textures=TexturesAtlas(atlas=[aux.texture_atlas.to(device)]))
 			return mesh
 		
-		mesh = render_object(cfg)
+		def bad_obj(cfg):
+			device = torch.device(cfg.device)
+			verts, faces, aux = load_obj(f"{cfg.file_name}.obj", create_texture_atlas=True, device=device)
+			mesh = Meshes(verts=[verts.to(device)], faces=[faces.verts_idx.to(device)], textures=TexturesAtlas(atlas=[aux.texture_atlas.to(device)]))
+			return mesh
 
+		if cfg.file_name:
+			mesh = bad_obj(cfg)
+		else:
+			mesh = render_object(cfg)
 		# mesh = get_mesh_from_pointe()
 		self.control_obj_mesh = join_meshes_as_batch([mesh] * cfg.batch_size)
 
@@ -304,11 +312,11 @@ class Trainer(nn.Module):
 		torch.cuda.empty_cache()
 
 		self.save_dir = Path(
-			f"./checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"checkpoints/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.save_dir.exists():
 			self.save_dir.mkdir(parents=True, exist_ok=True)
 		self.log_dir = Path(
-			f"./logs/{prompt}/{day_timestamp}/{hms_timestamp}")
+			f"logs/{prompt}/{day_timestamp}/{hms_timestamp}")
 		if not self.log_dir.exists():
 			self.log_dir.mkdir(parents=True, exist_ok=True)
 		self.eval_dir = self.save_dir / "eval"
@@ -323,7 +331,7 @@ class Trainer(nn.Module):
 
 		if cfg.wandb:
 			wandb.init(
-				project="experiments",
+				project="mt3d",
 				name=uid,
 				config=to_primitive(cfg),
 				sync_tensorboard=True,
@@ -420,7 +428,6 @@ class Trainer(nn.Module):
 
 		three_channel_depth = normalized_depth.repeat(1, 1, 1, 3)
 		images = images.permute(0, 3, 1, 2)[:, :3, :, :]
-		# return images, list(map(functional.to_pil_image, three_channel_depth.permute(0, 3, 1, 2)))
 		return images, three_channel_depth.permute(0, 3, 1, 2)
 
 	@property

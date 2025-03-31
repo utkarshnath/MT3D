@@ -19,50 +19,50 @@ from rich.console import Console
 console = Console()
 
 
-def get_density_val_grid(
-    renderer: GaussianSplattingRenderer,
-    batch_size: int = 256,
-    L: float = -1.0,
-    reso: int = 128,
-    K: int = 3,
-):
-    if L < 0.0:
-        L = renderer.mean.abs().max().item() * 1.1
-    x = torch.linspace(-L, L, reso)
-    y = torch.linspace(-L, L, reso)
-    z = torch.linspace(-L, L, reso)
+# def get_density_val_grid(
+#     renderer: GaussianSplattingRenderer,
+#     batch_size: int = 256,
+#     L: float = -1.0,
+#     reso: int = 128,
+#     K: int = 3,
+# ):
+#     if L < 0.0:
+#         L = renderer.mean.abs().max().item() * 1.1
+#     x = torch.linspace(-L, L, reso)
+#     y = torch.linspace(-L, L, reso)
+#     z = torch.linspace(-L, L, reso)
 
-    x, y, z = torch.meshgrid(x, y, z)
-    grid = torch.stack([x.reshape(-1), y.reshape(-1), z.reshape(-1)], dim=-1)
+#     x, y, z = torch.meshgrid(x, y, z)
+#     grid = torch.stack([x.reshape(-1), y.reshape(-1), z.reshape(-1)], dim=-1)
 
-    mean = renderer.mean
+#     mean = renderer.mean
 
-    # _, nn_idx, dist = K_nearest_neighbors(grid, mean, K=K, return_dist=True)
+#     # _, nn_idx, dist = K_nearest_neighbors(grid, mean, K=K, return_dist=True)
 
-    density_val_grid = torch.zeros_like(grid[..., :1])
+#     density_val_grid = torch.zeros_like(grid[..., :1])
 
-    num_grid_points = grid.shape[0]
-    for start in range(0, num_grid_points, batch_size):
-        end = min(start + batch_size, num_grid_points)
-        num_this_batch = end - start
-        pos = grid[start:end]
-        _, nn_idx, dist = K_nearest_neighbors(pos, mean, K=K + 1, return_dist=True)
-        nn_idx = nn_idx.reshape(-1)
-        mean_batch = mean[nn_idx]
-        cov_batch = renderer.cov[nn_idx]
+#     num_grid_points = grid.shape[0]
+#     for start in range(0, num_grid_points, batch_size):
+#         end = min(start + batch_size, num_grid_points)
+#         num_this_batch = end - start
+#         pos = grid[start:end]
+#         _, nn_idx, dist = K_nearest_neighbors(pos, mean, K=K + 1, return_dist=True)
+#         nn_idx = nn_idx.reshape(-1)
+#         mean_batch = mean[nn_idx]
+#         cov_batch = renderer.cov[nn_idx]
 
-        pos = repeat(pos, "b d -> b n d", n=K).reshape(-1, 3)
+#         pos = repeat(pos, "b d -> b n d", n=K).reshape(-1, 3)
 
-        # check where is the transpose should be
-        density = (
-            torch.exp(-0.5 * (pos - mean_batch) @ cov_batch @ (pos - mean_batch).T)
-            .reshape(num_this_batch, K)
-            .sum(axis=-1)
-        )
+#         # check where is the transpose should be
+#         density = (
+#             torch.exp(-0.5 * (pos - mean_batch) @ cov_batch @ (pos - mean_batch).T)
+#             .reshape(num_this_batch, K)
+#             .sum(axis=-1)
+#         )
 
-        density_val_grid[start:end] = density.reshape(num_this_batch, 1)
+#         density_val_grid[start:end] = density.reshape(num_this_batch, 1)
 
-    return density_val_grid.reshape(reso, reso, reso)
+#     return density_val_grid.reshape(reso, reso, reso)
 
 
 def get_density_val_grid_from_ckpt(
@@ -123,7 +123,7 @@ def get_density_val_grid_from_ckpt(
 
 
 def to_mesh(
-    ckpt_path, save_dir, device="cuda", reso=128, K=3, batch_size=256, thresh=0.5
+    ckpt_path, save_dir, device="cuda", reso=256, K=200, batch_size=65536, thresh=0.01
 ):
     torch.set_default_device(device)
     ckpt_path = get_ckpt_path(ckpt_path)
@@ -132,7 +132,7 @@ def to_mesh(
         return
     ckpt = torch.load(ckpt_path, map_location=device)
     cfg = ckpt["cfg"]
-    prompt = cfg["prompt"]["prompt"].replace(" ", "_")
+    prompt = cfg["init"]["prompt"]
 
     if "params" in ckpt:
         ckpt = ckpt["params"]
@@ -154,8 +154,8 @@ def to_mesh(
         save_dir.mkdir(parents=True, exist_ok=True)
 
     vertices, triangles = marching_cubes(density_val_grid, L, reso, thresh)
-    return vertices, triangles
     mcubes.export_obj(vertices, triangles, str(save_dir / f"{prompt}.obj"))
+    return vertices, triangles
 
 
 def to_ply(ckpt_path, save_dir):
@@ -291,7 +291,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("ckpt", type=str)
     parser.add_argument("--type", type=str, default="ply")
-    parser.add_argument("--save_dir", type=str, default="./exports/wacv_ablation/")
+    parser.add_argument("--save_dir", type=str, default="./exports/")
     parser.add_argument("--device", type=str, default="cuda")
     parser.add_argument("--reso", type=int, default=128)
     parser.add_argument("--K", type=int, default=3)

@@ -17,35 +17,6 @@ from rich.console import Console
 
 console = Console()
 
-# from prompt.prompt_processors import BasePromptProcessor, PromptEmbedding
-
-
-# class StableDiffusionPromptProcessor(BasePromptProcessor):
-#     def prepare_text_encoder(self):
-#         self.tokenizer = AutoTokenizer.from_pretrained(
-#             self.pretrained_model_name_or_path, subfolder="tokenizer"
-#         )
-#         self.text_encoder = CLIPTextModel.from_pretrained(
-#             self.pretrained_model_name_or_path,
-#             subfolder="text_encoder",
-#             device_map="auto",
-#         )
-
-#     def encode_prompts(self, prompts):
-#         with torch.no_grad():
-#             print(prompts)
-#             tokens = self.tokenizer(
-#                 prompts,
-#                 padding="max_length",
-#                 max_length=self.tokenizer.model_max_length,
-#                 return_tensors="pt",
-#             ).to(self.device)
-#             # print(tokens.input_ids.device)
-#             text_embeddings = self.text_encoder(tokens.input_ids)[0]
-
-#         return text_embeddings
-
-
 class StableDiffusionGuidance(BaseGuidance):
     def __init__(self, cfg) -> None:
         super().__init__(cfg)
