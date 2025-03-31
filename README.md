@@ -30,6 +30,14 @@ cd gs
 
 ---
 
+## 📥 Model Checkpoint
+
+Pretrained DGM ResNet model checkpoints can be downloaded from the [link](https://drive.google.com/file/d/10Lz2SR-1623PqWW4MGPmNhACAsX3Vb7i/view?usp=sharing)
+
+After downloading, place the checkpoint files in the same directory as the main.py file.
+
+---
+
 ## 🚀 Training
 
 ### Stage 1: Geometric Refinement
